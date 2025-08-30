@@ -97,3 +97,30 @@ Make sure your FastAPI server is running and accessible:
 - `provider`: State management
 - `http`: HTTP requests
 
+
+
+# OPTIONAL (Flutter installation steps _ LINUX)
+
+sudo snap install flutter --classic
+
+## Go to your home directory
+cd ~
+
+## Download the latest stable Flutter SDK
+wget https://storage.googleapis.com/flutter_infra_release/releases/stable/linux/flutter_linux_3.24.5-stable.tar.xz
+
+## Extract it
+tar xf flutter_linux_3.24.5-stable.tar.xz
+
+## Add Flutter to PATH (for this session)
+export PATH="$PATH:$HOME/flutter/bin"
+
+## Make it permanent by adding that line to ~/.bashrc or ~/.zshrc
+echo 'export PATH="$PATH:$HOME/flutter/bin"' >> ~/.bashrc
+source ~/.bashrc
+
+
+# Command to show devices able to connect
+sudo apt install android-tools-adb
+
+adb devices
