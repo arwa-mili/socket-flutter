@@ -1,8 +1,6 @@
 name: audio_streaming_app
 description: Real-time audio streaming Flutter app
-
 publish_to: 'none'
-
 version: 1.0.0+1
 
 environment:
@@ -15,19 +13,12 @@ dependencies:
 
   # Audio recording
   record: ^6.1.1
-  record_android: ^1.4.1
-  record_linux: ^1.2.1
-  record_windows: ^1.0.7
-  record_darwin: ^1.2.2
 
   # Permissions
   permission_handler: ^11.4.0
 
   # WebSocket communication
   web_socket_channel: ^2.4.0
-
-  # HTTP requests
-  http: ^1.5.0
 
   # State management
   provider: ^6.1.5+1

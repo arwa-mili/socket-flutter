@@ -96,22 +96,6 @@ packages:
     description: flutter
     source: sdk
     version: "0.0.0"
-  http:
-    dependency: "direct main"
-    description:
-      name: http
-      sha256: bb2ce4590bc2667c96f318d68cac1b5a7987ec819351d32b1c987239a815e007
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.5.0"
-  http_parser:
-    dependency: transitive
-    description:
-      name: http_parser
-      sha256: "178d74305e7866013777bab2c3d8726205dc5a4dd935297175b19a23a2e66571"
-      url: "https://pub.dev"
-    source: hosted
-    version: "4.1.2"
   leak_tracker:
     dependency: transitive
     description:
@@ -257,21 +241,13 @@ packages:
     source: hosted
     version: "6.1.1"
   record_android:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: record_android
       sha256: "8361a791c9a3fa5c065f0b8b5adb10f12531f8538c86b19474cf7b56ea80d426"
       url: "https://pub.dev"
     source: hosted
     version: "1.4.1"
-  record_darwin:
-    dependency: "direct main"
-    description:
-      name: record_darwin
-      sha256: e487eccb19d82a9a39cd0126945cfc47b9986e0df211734e2788c95e3f63c82c
-      url: "https://pub.dev"
-    source: hosted
-    version: "1.2.2"
   record_ios:
     dependency: transitive
     description:
@@ -281,7 +257,7 @@ packages:
     source: hosted
     version: "1.1.2"
   record_linux:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: record_linux
       sha256: "235b1f1fb84e810f8149cc0c2c731d7d697f8d1c333b32cb820c449bf7bb72d8"
@@ -313,7 +289,7 @@ packages:
     source: hosted
     version: "1.2.0"
   record_windows:
-    dependency: "direct main"
+    dependency: transitive
     description:
       name: record_windows
       sha256: "223258060a1d25c62bae18282c16783f28581ec19401d17e56b5205b9f039d78"

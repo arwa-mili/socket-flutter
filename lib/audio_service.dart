@@ -9,11 +9,12 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class AudioService extends ChangeNotifier {
-  static const String defaultServerUrl = 'ws://192.168.1.26:8000/ws/audio?token=flutter';
+  static const String defaultServerUrl = 'ws://192.168.1.32:8000/ws/audio?token=flutter';
 
   WebSocketChannel? _channel;
   final AudioRecorder _recorder = AudioRecorder();
   Timer? _recordingTimer;
+  StreamSubscription<Uint8List>? _audioStreamSubscription;
 
   bool _isConnected = false;
   bool _isRecording = false;
@@ -22,6 +23,18 @@ class AudioService extends ChangeNotifier {
   String _status = 'Disconnected';
   List<String> _messages = [];
   int _chunksSent = 0;
+
+  // Buffer pour accumuler les données audio
+  List<int> _audioBuffer = [];
+  static const int _targetChunkDurationMs = 500; // 0.5 seconde
+  static const int _sampleRate = 16000;
+  static const int _channels = 1;
+  static const int _bytesPerSample = 2; // 16-bit PCM
+  static const int _targetChunkSize = (_sampleRate * _channels * _bytesPerSample * _targetChunkDurationMs) ~/ 1000;
+
+  // ✅ NOUVEAU: Suivre le timing précis
+  DateTime? _lastChunkSentTime;
+  DateTime? _recordingStartTime;
 
   // Getters
   bool get isConnected => _isConnected;
@@ -87,8 +100,8 @@ class AudioService extends ChangeNotifier {
       final metadata = {
         'type': 'meta',
         'session_id': _sessionId,
-        'sample_rate': 16000,
-        'channels': 1,
+        'sample_rate': _sampleRate,
+        'channels': _channels,
       };
 
       _channel!.sink.add(jsonEncode(metadata));
@@ -111,11 +124,24 @@ class AudioService extends ChangeNotifier {
             break;
           case 'meta_ack':
             _addMessage('Metadata acknowledged');
+            // ✅ NOUVEAU: Vérifier la durée attendue par le serveur
+            final expectedDuration = data['expected_chunk_duration_ms'];
+            if (expectedDuration != null) {
+              _addMessage('Server expects chunks every ${expectedDuration}ms');
+            }
             break;
           case 'chunk_processed':
             final sequence = data['sequence'];
             final size = data['size'];
-            _addMessage('Chunk $sequence processed ($size bytes)');
+            final actualDuration = data['actual_duration_ms'];
+            final expectedDuration = data['expected_duration_ms'];
+            
+            String durationInfo = '';
+            if (actualDuration != null && expectedDuration != null) {
+              durationInfo = ' (${actualDuration.toStringAsFixed(1)}ms vs ${expectedDuration}ms expected)';
+            }
+            
+            _addMessage('Chunk $sequence processed ($size bytes)$durationInfo');
             break;
           case 'error':
             _addMessage('Server error: ${data['message']}');
@@ -169,24 +195,41 @@ class AudioService extends ChangeNotifier {
 
       _updateStatus('Starting recording...');
 
-      // ✅ Added required path parameter
-      await _recorder.start(
+      // Réinitialiser le buffer et les timings
+      _audioBuffer.clear();
+      _lastChunkSentTime = null;
+      _recordingStartTime = DateTime.now();
+
+      // Utiliser startStream() pour obtenir les données audio en temps réel
+      final stream = await _recorder.startStream(
         const RecordConfig(
           encoder: AudioEncoder.pcm16bits,
-          sampleRate: 16000,
-          numChannels: 1,
+          sampleRate: _sampleRate,
+          numChannels: _channels,
         ),
-        path: '/tmp/recording.wav', // required for new API
       );
 
       _isRecording = true;
       _chunksSent = 0;
-      _updateStatus('Recording started');
+      _updateStatus('Recording started - sending chunks every ${_targetChunkDurationMs}ms');
 
-      // Start streaming timer (send chunks every 100ms)
-      _recordingTimer = Timer.periodic(const Duration(milliseconds: 100), (timer) {
-        _sendAudioChunk();
-      });
+      // Écouter le stream audio réel
+      _audioStreamSubscription = stream.listen(
+        (audioData) {
+          _processAudioData(audioData);
+        },
+        onError: (error) {
+          _updateStatus('Audio stream error: $error');
+          stopRecording();
+        },
+        onDone: () {
+          _updateStatus('Audio stream ended');
+        },
+      );
+
+      // ✅ AMÉLIORATION: Timer plus précis avec compensation de dérive
+      _startPreciseTimer();
+
     } catch (e) {
       _updateStatus('Failed to start recording: $e');
     }
@@ -194,31 +237,91 @@ class AudioService extends ChangeNotifier {
     notifyListeners();
   }
 
-  Future<void> _sendAudioChunk() async {
+  // ✅ NOUVEAU: Timer plus précis pour éviter la dérive temporelle
+  void _startPreciseTimer() {
+    final startTime = DateTime.now();
+    int expectedChunks = 0;
+    
+    _recordingTimer = Timer.periodic(Duration(milliseconds: 50000), (timer) {
+      if (!_isRecording || !_isConnected) {
+        timer.cancel();
+        return;
+      }
+      
+      final now = DateTime.now();
+      final elapsedMs = now.difference(startTime).inMilliseconds;
+      final shouldHaveSentChunks = (elapsedMs / _targetChunkDurationMs).floor();
+      
+      // Envoyer les chunks manqués pour rattraper le timing
+      while (expectedChunks < shouldHaveSentChunks) {
+        _sendBufferedAudioChunk();
+        expectedChunks++;
+      }
+    });
+  }
+
+  // Traiter les données audio reçues du stream
+  void _processAudioData(Uint8List audioData) {
+    if (!_isRecording || !_isConnected) return;
+
+    // Ajouter les nouvelles données au buffer
+    _audioBuffer.addAll(audioData);
+  }
+
+  // ✅ AMÉLIORATION: Envoyer les données audio avec meilleur contrôle de taille
+  Future<void> _sendBufferedAudioChunk() async {
     if (!_isRecording || !_isConnected) return;
 
     try {
-      // Simulated audio data
-      final chunkSize = 1600; // 100ms at 16kHz mono 16-bit
-      final audioData = Uint8List(chunkSize * 2); // 16-bit samples
+      final now = DateTime.now();
+      
+      // ✅ AMÉLIORATION: Envoyer même si le buffer est plus petit que la taille cible
+      // pour maintenir le timing régulier
+      if (_audioBuffer.isEmpty) {
+        // Si pas de données, envoyer un chunk de silence
+        final silenceChunk = Uint8List(_targetChunkSize);
+        _channel!.sink.add(silenceChunk);
+        _chunksSent++;
+        _addMessage('Sent silence chunk ${_chunksSent} (${silenceChunk.length} bytes)');
+      } else {
+        // Prendre toutes les données disponibles ou la taille cible
+        final chunkSize = _audioBuffer.length > _targetChunkSize ? _targetChunkSize : _audioBuffer.length;
+        final chunkData = Uint8List.fromList(_audioBuffer.take(chunkSize).toList());
+        
+        // Si le chunk est plus petit que la taille cible, le compléter avec du silence
+        Uint8List finalChunk;
+        if (chunkData.length < _targetChunkSize) {
+          finalChunk = Uint8List(_targetChunkSize);
+          finalChunk.setRange(0, chunkData.length, chunkData);
+          // Le reste reste à zéro (silence)
+        } else {
+          finalChunk = chunkData;
+        }
+        
+        // Retirer les données envoyées du buffer
+        final dataToRemove = chunkData.length;
+        if (_audioBuffer.length >= dataToRemove) {
+          _audioBuffer.removeRange(0, dataToRemove);
+        } else {
+          _audioBuffer.clear();
+        }
 
-      // Generate sine wave
-      final frequency = 440.0; // A4 note
-      final sampleRate = 16000.0;
-
-      for (int i = 0; i < chunkSize; i++) {
-        final time = (_chunksSent * chunkSize + i) / sampleRate;
-        // ✅ Use sin() from dart:math instead of .sin()
-        final amplitude = (16384 * (0.1 * sin(2 * pi * frequency * time))).round();
-
-        // Convert to 16-bit little-endian
-        audioData[i * 2] = amplitude & 0xFF;
-        audioData[i * 2 + 1] = (amplitude >> 8) & 0xFF;
+        // Envoyer les données audio
+        _channel!.sink.add(finalChunk);
+        _chunksSent++;
+        
+        // ✅ NOUVEAU: Calculer le timing réel
+        String timingInfo = '';
+        if (_lastChunkSentTime != null) {
+          final actualInterval = now.difference(_lastChunkSentTime!).inMilliseconds;
+          timingInfo = ' (interval: ${actualInterval}ms)';
+        }
+        
+        _addMessage('Sent audio chunk ${_chunksSent} (${finalChunk.length} bytes)$timingInfo');
       }
-
-      // Send binary data
-      _channel!.sink.add(audioData);
-      _chunksSent++;
+      
+      _lastChunkSentTime = now;
+      
     } catch (e) {
       _addMessage('Error sending audio chunk: $e');
     }
@@ -228,12 +331,40 @@ class AudioService extends ChangeNotifier {
     if (!_isRecording) return;
 
     try {
+      _updateStatus('Stopping recording...');
+
+      // Arrêter le timer
       _recordingTimer?.cancel();
       _recordingTimer = null;
 
+      // Arrêter l'écoute du stream audio
+      await _audioStreamSubscription?.cancel();
+      _audioStreamSubscription = null;
+
+      // Arrêter l'enregistrement
       await _recorder.stop();
+
+      // Envoyer les dernières données du buffer s'il en reste
+      if (_audioBuffer.isNotEmpty) {
+        final remainingData = Uint8List.fromList(_audioBuffer);
+        _channel!.sink.add(remainingData);
+        _chunksSent++;
+        _addMessage('Sent final chunk ${_chunksSent} (${remainingData.length} bytes)');
+      }
+
+      // Vider le buffer
+      _audioBuffer.clear();
+
       _isRecording = false;
-      _updateStatus('Recording stopped');
+      
+      // ✅ NOUVEAU: Afficher les statistiques de timing
+      if (_recordingStartTime != null) {
+        final totalDuration = DateTime.now().difference(_recordingStartTime!);
+        final expectedChunks = (totalDuration.inMilliseconds / _targetChunkDurationMs).round();
+        _updateStatus('Recording stopped - Sent: $_chunksSent chunks, Expected: $expectedChunks chunks');
+      } else {
+        _updateStatus('Recording stopped - Total chunks sent: $_chunksSent');
+      }
     } catch (e) {
       _updateStatus('Error stopping recording: $e');
     }
@@ -244,6 +375,7 @@ class AudioService extends ChangeNotifier {
   @override
   void dispose() {
     _recordingTimer?.cancel();
+    _audioStreamSubscription?.cancel();
     _recorder.dispose();
     _channel?.sink.close();
     super.dispose();
