@@ -1,0 +1,44 @@
+name: audio_streaming_app
+description: Real-time audio streaming Flutter app
+
+publish_to: 'none'
+
+version: 1.0.0+1
+
+environment:
+  sdk: '>=3.0.0 <4.0.0'
+  flutter: ">=3.10.0"
+
+dependencies:
+  flutter:
+    sdk: flutter
+
+  # Audio recording
+  record: ^6.1.1
+  record_android: ^1.4.1
+  record_linux: ^1.2.1
+  record_windows: ^1.0.7
+  record_darwin: ^1.2.2
+
+  # Permissions
+  permission_handler: ^11.4.0
+
+  # WebSocket communication
+  web_socket_channel: ^2.4.0
+
+  # HTTP requests
+  http: ^1.5.0
+
+  # State management
+  provider: ^6.1.5+1
+
+  # UI components
+  cupertino_icons: ^1.0.8
+
+dev_dependencies:
+  flutter_test:
+    sdk: flutter
+  flutter_lints: ^3.0.2
+
+flutter:
+  uses-material-design: true
