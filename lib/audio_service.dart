@@ -8,7 +8,7 @@ import 'package:web_socket_channel/web_socket_channel.dart';
 import 'package:permission_handler/permission_handler.dart';
 
 class AudioService extends ChangeNotifier {
-  static const String defaultServerUrl = 'ws://192.168.80.27:8000/ws/audio?token=flutter';
+  static const String defaultServerUrl = 'wss://arwaaaa-tajweed-ai-fastapi.hf.space/ws/audio?token=flutter';
 
   WebSocketChannel? _channel;
   final AudioRecorder _recorder = AudioRecorder();
